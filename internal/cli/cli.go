@@ -28,6 +28,7 @@ func Run(ctx context.Context, ag *agent.Agent) {
 		switch input {
 		case "exit", "quit":
 			mylogger.System("Exiting...")
+			ag.PrintSessionSummary()
 			return
 		case "clear":
 			fmt.Print("\033[H\033[2J") // Clear terminal
@@ -46,4 +47,5 @@ func Run(ctx context.Context, ag *agent.Agent) {
 	if err := scanner.Err(); err != nil {
 		mylogger.Error("Error reading input: %v", err)
 	}
+	ag.PrintSessionSummary()
 }

@@ -61,3 +61,11 @@ func DiffMinus(format string, a ...interface{}) {
 func DiffPlus(format string, a ...interface{}) {
 	color.New(color.FgGreen).Printf(format+"\n", a...)
 }
+
+func Tokens(line string) {
+	color.New(color.FgHiBlack).Println(line)
+}
+
+func TokenSummary(summary string) {
+	color.New(color.FgYellow).Println(summary)
+}

@@ -48,9 +48,11 @@ type ollamaRequest struct {
 }
 
 type ollamaResponse struct {
-	Model     string        `json:"model"`
-	Message   ollamaMessage `json:"message"`
-	Done      bool          `json:"done"`
+	Model           string        `json:"model"`
+	Message         ollamaMessage `json:"message"`
+	Done            bool          `json:"done"`
+	PromptEvalCount int32         `json:"prompt_eval_count"` // input tokens
+	EvalCount       int32         `json:"eval_count"`        // output tokens
 }
 
 func (o *OllamaClient) GenerateContentStream(ctx context.Context, history []*genai.Content, systemInstruction string, tools []*genai.Tool) iter.Seq2[*genai.GenerateContentResponse, error] {
@@ -154,6 +156,16 @@ func (o *OllamaClient) GenerateContentStream(ctx context.Context, history []*gen
 						},
 					},
 				},
+			}
+
+			// The final chunk carries token counts; map them into UsageMetadata
+			// so the agent loop can treat Ollama and Gemini identically.
+			if ollamaResp.Done {
+				genaiResp.UsageMetadata = &genai.GenerateContentResponseUsageMetadata{
+					PromptTokenCount:     ollamaResp.PromptEvalCount,
+					CandidatesTokenCount: ollamaResp.EvalCount,
+					TotalTokenCount:      ollamaResp.PromptEvalCount + ollamaResp.EvalCount,
+				}
 			}
 
 			if !yield(genaiResp, nil) {
