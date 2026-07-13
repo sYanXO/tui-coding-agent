@@ -20,7 +20,7 @@ func main() {
 	mylogger.Init()
 
 	apiKey := os.Getenv("GEMINI_API_KEY")
-	if apiKey == "" {
+	if apiKey == "" && os.Getenv("LLM_PROVIDER") != "ollama" {
 		mylogger.Error("GEMINI_API_KEY is not set. Please set it in your environment or a .env file.")
 		os.Exit(1)
 	}

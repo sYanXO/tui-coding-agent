@@ -98,7 +98,40 @@ func (e *Executor) Execute(name string, args map[string]any) (map[string]any, er
 	}
 }
 
+func (e *Executor) isPathInWorkspace(path string) bool {
+	var absPath string
+	if filepath.IsAbs(path) {
+		absPath = filepath.Clean(path)
+	} else {
+		absPath = filepath.Clean(filepath.Join(e.workspace, path))
+	}
+
+	workspaceToUse := e.workspace
+	if evalWorkspace, err := filepath.EvalSymlinks(e.workspace); err == nil {
+		workspaceToUse = evalWorkspace
+	}
+
+	if evalPath, err := filepath.EvalSymlinks(absPath); err == nil {
+		absPath = evalPath
+	} else {
+		parent := filepath.Dir(absPath)
+		if evalParent, err := filepath.EvalSymlinks(parent); err == nil {
+			absPath = filepath.Join(evalParent, filepath.Base(absPath))
+		}
+	}
+
+	rel, err := filepath.Rel(workspaceToUse, absPath)
+	if err != nil {
+		return false
+	}
+
+	return !strings.HasPrefix(rel, "..")
+}
+
 func (e *Executor) readFile(path string) (map[string]any, error) {
+	if !e.isPathInWorkspace(path) {
+		return map[string]any{"error": "access denied: path is outside workspace"}, nil
+	}
 	mylogger.Tool("Reading file: %s", path)
 	content, err := os.ReadFile(path)
 	if err != nil {
@@ -108,6 +141,9 @@ func (e *Executor) readFile(path string) (map[string]any, error) {
 }
 
 func (e *Executor) writeFile(path string, content string) (map[string]any, error) {
+	if !e.isPathInWorkspace(path) {
+		return map[string]any{"error": "access denied: path is outside workspace"}, nil
+	}
 	mylogger.Tool("Writing file: %s", path)
 	err := os.WriteFile(path, []byte(content), 0644)
 	if err != nil {
@@ -117,6 +153,9 @@ func (e *Executor) writeFile(path string, content string) (map[string]any, error
 }
 
 func (e *Executor) listDirectory(path string) (map[string]any, error) {
+	if !e.isPathInWorkspace(path) {
+		return map[string]any{"error": "access denied: path is outside workspace"}, nil
+	}
 	mylogger.Tool("Listing directory: %s", path)
 	entries, err := os.ReadDir(path)
 	if err != nil {
@@ -163,7 +202,7 @@ func (e *Executor) searchFiles(query string) (map[string]any, error) {
 
 func (e *Executor) runBash(command string) (map[string]any, error) {
 	// Safety checks
-	forbidden := []string{"sudo ", "shutdown", "rm -rf /", "cd .."}
+	forbidden := []string{"sudo ", "shutdown", "rm -rf /", "cd ..", "reboot"}
 	for _, word := range forbidden {
 		if strings.Contains(command, word) {
 			return map[string]any{"error": "Command contains forbidden string: " + word}, nil

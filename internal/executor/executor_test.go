@@ -87,3 +87,61 @@ func TestExecuteRunBashSandbox(t *testing.T) {
 		t.Errorf("expected output to contain 'hello from sandbox', got %q", output)
 	}
 }
+
+func TestExecuteRunBashForbiddenReboot(t *testing.T) {
+	exec, err := NewExecutor()
+	if err != nil {
+		t.Fatalf("failed to create executor: %v", err)
+	}
+	exec.useSandbox = false
+
+	res, err := exec.Execute("run_bash", map[string]any{"command": "reboot now"})
+	if err != nil {
+		t.Fatalf("execute failed: %v", err)
+	}
+
+	errStr, ok := res["error"].(string)
+	if !ok {
+		t.Fatalf("expected error block for forbidden reboot command")
+	}
+	if !strings.Contains(errStr, "forbidden string") {
+		t.Errorf("expected forbidden command message, got: %s", errStr)
+	}
+}
+
+func TestPathInWorkspaceRestriction(t *testing.T) {
+	exec, err := NewExecutor()
+	if err != nil {
+		t.Fatalf("failed to create executor: %v", err)
+	}
+
+	// Inside workspace should be allowed (even if file does not exist, it fails on os level, not sandbox restriction)
+	res, err := exec.Execute("read_file", map[string]any{"path": "nonexistent_file_inside.txt"})
+	if err != nil {
+		t.Fatalf("execute failed: %v", err)
+	}
+	errStr, ok := res["error"].(string)
+	if !ok || strings.Contains(errStr, "access denied") {
+		t.Errorf("expected standard os error, got: %s", errStr)
+	}
+
+	// Outside workspace should be blocked
+	res2, err := exec.Execute("read_file", map[string]any{"path": "../outside_file.txt"})
+	if err != nil {
+		t.Fatalf("execute failed: %v", err)
+	}
+	errStr2, ok2 := res2["error"].(string)
+	if !ok2 || !strings.Contains(errStr2, "access denied") {
+		t.Errorf("expected access denied error, got: %v", res2)
+	}
+
+	// Write tool outside workspace should be blocked
+	res3, err := exec.Execute("write_file", map[string]any{"path": "/etc/passwd", "content": "hack"})
+	if err != nil {
+		t.Fatalf("execute failed: %v", err)
+	}
+	errStr3, ok3 := res3["error"].(string)
+	if !ok3 || !strings.Contains(errStr3, "access denied") {
+		t.Errorf("expected access denied error on write, got: %v", res3)
+	}
+}
