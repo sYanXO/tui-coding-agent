@@ -1,0 +1,15 @@
+# Binary
+agent
+
+# Environment variables (API keys!)
+.env
+.env.local
+.env.*
+
+# Go build cache
+*.test
+*.out
+
+# OS
+.DS_Store
+Thumbs.db
