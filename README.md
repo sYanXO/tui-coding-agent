@@ -1,8 +1,7 @@
 # Terminal Coding Agent — FAFO Report
 
-> *Fuck Around and Find Out: building a local autonomous coding agent from scratch in an afternoon.*
+> *Fuck Around and Find Out: building a local autonomous coding agent from scratch.*
 
-We took a spec, picked Go + Gemini, and iterated until a small language model running on a laptop CPU could autonomously write code, run tests, fix its own mistakes, and say "Done." — without touching the internet.
 
 ---
 
