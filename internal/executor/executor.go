@@ -10,6 +10,7 @@ import (
 	"time"
 
 	mylogger "terminal-coding-agent/internal/logger"
+	"terminal-coding-agent/internal/index"
 )
 
 type Executor struct {
@@ -17,6 +18,7 @@ type Executor struct {
 	useSandbox   bool
 	sandboxImage string
 	sandboxShell string
+	indexer      *index.Indexer
 }
 
 func NewExecutor() (*Executor, error) {
@@ -40,16 +42,47 @@ func NewExecutor() (*Executor, error) {
 		}
 	}
 
+	idx := index.NewIndexer(cwd)
+	// Run initial scan to orient the agent on startup
+	_ = idx.Scan()
+
 	return &Executor{
 		workspace:    cwd,
 		useSandbox:   useSandbox,
 		sandboxImage: sandboxImage,
 		sandboxShell: sandboxShell,
+		indexer:      idx,
 	}, nil
 }
 
 func (e *Executor) Execute(name string, args map[string]any) (map[string]any, error) {
 	switch name {
+	case "search_symbols":
+		query, ok := args["query"].(string)
+		if !ok {
+			return nil, fmt.Errorf("missing or invalid query argument")
+		}
+		// Refresh scan before searching to ensure freshness
+		_ = e.indexer.Scan()
+		results := e.indexer.Search(query)
+		return map[string]any{"symbols": results}, nil
+
+	case "list_symbols":
+		path, ok := args["path"].(string)
+		if !ok {
+			return nil, fmt.Errorf("missing or invalid path argument")
+		}
+		if !e.isPathInWorkspace(path) {
+			return map[string]any{"error": "access denied: path is outside workspace"}, nil
+		}
+		_ = e.indexer.Scan()
+		symbols := e.indexer.ListFile(path)
+		return map[string]any{"symbols": symbols}, nil
+
+	case "get_repo_map":
+		_ = e.indexer.Scan()
+		return e.indexer.GetRepoMap(), nil
+
 	case "read_file":
 		path, ok := args["path"].(string)
 		if !ok {

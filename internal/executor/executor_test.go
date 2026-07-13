@@ -5,6 +5,7 @@ import (
 	"strings"
 	"testing"
 
+	"terminal-coding-agent/internal/index"
 	"terminal-coding-agent/internal/logger"
 )
 
@@ -222,3 +223,72 @@ func TestExecutePatchFile(t *testing.T) {
 		t.Errorf("expected access denied error, got: %v", res4)
 	}
 }
+
+func TestExecuteIndexingTools(t *testing.T) {
+	exec, err := NewExecutor()
+	if err != nil {
+		t.Fatalf("failed to create executor: %v", err)
+	}
+
+	// 1. Test get_repo_map
+	resMap, err := exec.Execute("get_repo_map", nil)
+	if err != nil {
+		t.Fatalf("get_repo_map failed: %v", err)
+	}
+	files, ok := resMap["files"].([]string)
+	if !ok {
+		t.Fatalf("expected files key in get_repo_map result, got %v", resMap)
+	}
+	// Verify it contains executor.go of the codebase
+	foundExecutor := false
+	for _, f := range files {
+		if strings.Contains(f, "executor.go") {
+			foundExecutor = true
+			break
+		}
+	}
+	if !foundExecutor {
+		t.Errorf("expected to find executor.go in file list, got %v", files)
+	}
+
+	// 2. Test search_symbols
+	resSearch, err := exec.Execute("search_symbols", map[string]any{"query": "Execute"})
+	if err != nil {
+		t.Fatalf("search_symbols failed: %v", err)
+	}
+	syms, ok := resSearch["symbols"].([]map[string]any)
+	if !ok {
+		t.Fatalf("expected symbols slice in search_symbols result, got %v", resSearch)
+	}
+	foundExecute := false
+	for _, sym := range syms {
+		if name, ok := sym["name"].(string); ok && name == "Execute" {
+			foundExecute = true
+			break
+		}
+	}
+	if !foundExecute {
+		t.Errorf("expected to find 'Execute' symbol in results, got %v", syms)
+	}
+
+	// 3. Test list_symbols
+	resList, err := exec.Execute("list_symbols", map[string]any{"path": "executor.go"})
+	if err != nil {
+		t.Fatalf("list_symbols failed: %v", err)
+	}
+	listSyms, ok := resList["symbols"].([]index.Symbol)
+	if !ok {
+		t.Fatalf("expected []index.Symbol slice in list_symbols result, got %T: %v", resList["symbols"], resList)
+	}
+	foundExecuteInList := false
+	for _, sym := range listSyms {
+		if sym.Name == "Execute" {
+			foundExecuteInList = true
+			break
+		}
+	}
+	if !foundExecuteInList {
+		t.Errorf("expected to find 'Execute' in listed symbols, got %v", listSyms)
+	}
+}
+

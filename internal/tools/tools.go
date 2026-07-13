@@ -118,6 +118,41 @@ func GetToolSchemas() []*genai.Tool {
 						Required: []string{"message"},
 					},
 				},
+				{
+					Name:        "search_symbols",
+					Description: "Searches for symbols (functions, structs, interfaces, methods, constants, variables) across the codebase matching a query.",
+					Parameters: &genai.Schema{
+						Type: genai.TypeObject,
+						Properties: map[string]*genai.Schema{
+							"query": {
+								Type:        genai.TypeString,
+								Description: "The substring to search for in symbol names.",
+							},
+						},
+						Required: []string{"query"},
+					},
+				},
+				{
+					Name:        "list_symbols",
+					Description: "Lists all symbols defined in a specific file.",
+					Parameters: &genai.Schema{
+						Type: genai.TypeObject,
+						Properties: map[string]*genai.Schema{
+							"path": {
+								Type:        genai.TypeString,
+								Description: "The path of the file to list symbols for.",
+							},
+						},
+						Required: []string{"path"},
+					},
+				},
+				{
+					Name:        "get_repo_map",
+					Description: "Returns a high-level list of all files in the project workspace to orient the agent.",
+					Parameters: &genai.Schema{
+						Type: genai.TypeObject,
+					},
+				},
 			},
 		},
 	}
