@@ -49,3 +49,15 @@ func Error(format string, a ...interface{}) {
 func Printf(format string, a ...interface{}) {
 	fmt.Printf(format, a...)
 }
+
+func DiffHeader(format string, a ...interface{}) {
+	color.New(color.FgCyan).Printf(format+"\n", a...)
+}
+
+func DiffMinus(format string, a ...interface{}) {
+	color.New(color.FgRed).Printf(format+"\n", a...)
+}
+
+func DiffPlus(format string, a ...interface{}) {
+	color.New(color.FgGreen).Printf(format+"\n", a...)
+}

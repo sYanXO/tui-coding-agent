@@ -53,20 +53,98 @@ func (e *Executor) Execute(name string, args map[string]any) (map[string]any, er
 	case "read_file":
 		path, ok := args["path"].(string)
 		if !ok {
+			if p, ok2 := args["file_path"].(string); ok2 {
+				path = p
+				ok = true
+			} else if p, ok2 := args["filePath"].(string); ok2 {
+				path = p
+				ok = true
+			}
+		}
+		if !ok {
 			return nil, fmt.Errorf("missing or invalid path argument")
 		}
 		return e.readFile(path)
 
 	case "write_file":
 		path, ok1 := args["path"].(string)
+		if !ok1 {
+			if p, ok := args["file_path"].(string); ok {
+				path = p
+				ok1 = true
+			} else if p, ok := args["filePath"].(string); ok {
+				path = p
+				ok1 = true
+			}
+		}
 		content, ok2 := args["content"].(string)
+		if !ok2 {
+			if c, ok := args["file_content"].(string); ok {
+				content = c
+				ok2 = true
+			} else if c, ok := args["fileContent"].(string); ok {
+				content = c
+				ok2 = true
+			}
+		}
 		if !ok1 || !ok2 {
 			return nil, fmt.Errorf("missing or invalid path/content arguments")
 		}
 		return e.writeFile(path, content)
 
+	case "patch_file":
+		path, ok1 := args["path"].(string)
+		if !ok1 {
+			if p, ok := args["file_path"].(string); ok {
+				path = p
+				ok1 = true
+			} else if p, ok := args["filePath"].(string); ok {
+				path = p
+				ok1 = true
+			}
+		}
+		search, ok2 := args["search"].(string)
+		if !ok2 {
+			if s, ok := args["search_pattern"].(string); ok {
+				search = s
+				ok2 = true
+			} else if s, ok := args["searchPattern"].(string); ok {
+				search = s
+				ok2 = true
+			} else if s, ok := args["pattern"].(string); ok {
+				search = s
+				ok2 = true
+			}
+		}
+		replace, ok3 := args["replace"].(string)
+		if !ok3 {
+			if r, ok := args["replacement"].(string); ok {
+				replace = r
+				ok3 = true
+			} else if r, ok := args["replace_value"].(string); ok {
+				replace = r
+				ok3 = true
+			}
+		}
+		if !ok1 || !ok2 || !ok3 {
+			return nil, fmt.Errorf("missing or invalid path/search/replace arguments")
+		}
+		return e.patchFile(path, search, replace)
+
 	case "list_directory":
 		path, ok := args["path"].(string)
+		if !ok {
+			if p, ok2 := args["dir_path"].(string); ok2 {
+				path = p
+				ok = true
+			} else if p, ok2 := args["dirPath"].(string); ok2 {
+				path = p
+				ok = true
+			} else if p, ok2 := args["directory"].(string); ok2 {
+				path = p
+				ok = true
+			}
+		}
 		if !ok {
 			return nil, fmt.Errorf("missing or invalid path argument")
 		}
@@ -75,6 +153,15 @@ func (e *Executor) Execute(name string, args map[string]any) (map[string]any, er
 	case "search_files":
 		query, ok := args["query"].(string)
 		if !ok {
+			if q, ok2 := args["search"].(string); ok2 {
+				query = q
+				ok = true
+			} else if q, ok2 := args["pattern"].(string); ok2 {
+				query = q
+				ok = true
+			}
+		}
+		if !ok {
 			return nil, fmt.Errorf("missing or invalid query argument")
 		}
 		return e.searchFiles(query)
@@ -82,12 +169,24 @@ func (e *Executor) Execute(name string, args map[string]any) (map[string]any, er
 	case "run_bash":
 		command, ok := args["command"].(string)
 		if !ok {
+			if c, ok2 := args["cmd"].(string); ok2 {
+				command = c
+				ok = true
+			}
+		}
+		if !ok {
 			return nil, fmt.Errorf("missing or invalid command argument")
 		}
 		return e.runBash(command)
 
 	case "finish":
 		msg, ok := args["message"].(string)
+		if !ok {
+			if m, ok2 := args["summary"].(string); ok2 {
+				msg = m
+				ok = true
+			}
+		}
 		if !ok {
 			return nil, fmt.Errorf("missing or invalid message argument")
 		}
@@ -150,6 +249,107 @@ func (e *Executor) writeFile(path string, content string) (map[string]any, error
 		return map[string]any{"error": err.Error()}, nil
 	}
 	return map[string]any{"status": "success"}, nil
+}
+
+func (e *Executor) patchFile(path string, search string, replace string) (map[string]any, error) {
+	if !e.isPathInWorkspace(path) {
+		return map[string]any{"error": "access denied: path is outside workspace"}, nil
+	}
+	mylogger.Tool("Patching file: %s", path)
+
+	contentBytes, err := os.ReadFile(path)
+	if err != nil {
+		return map[string]any{"error": err.Error()}, nil
+	}
+	content := string(contentBytes)
+
+	// Verify that the search string exists and is unique
+	count := strings.Count(content, search)
+	if count == 0 {
+		return map[string]any{"error": "search block not found in file"}, nil
+	}
+	if count > 1 {
+		return map[string]any{"error": "search block matches multiple times, patch is ambiguous"}, nil
+	}
+
+	newContent := strings.Replace(content, search, replace, 1)
+
+	// Print the diff in git-diff style
+	e.printDiff(path, content, search, replace)
+
+	// Write new content
+	err = os.WriteFile(path, []byte(newContent), 0644)
+	if err != nil {
+		return map[string]any{"error": err.Error()}, nil
+	}
+
+	return map[string]any{"status": "success"}, nil
+}
+
+func (e *Executor) printDiff(path string, content string, search string, replace string) {
+	idx := strings.Index(content, search)
+	if idx == -1 {
+		return
+	}
+
+	before := content[:idx]
+	after := content[idx+len(search):]
+
+	var beforeLines []string
+	if before != "" {
+		beforeLines = strings.Split(strings.TrimSuffix(before, "\n"), "\n")
+	}
+	var afterLines []string
+	if after != "" {
+		afterLines = strings.Split(strings.TrimSuffix(strings.TrimPrefix(after, "\n"), "\n"), "\n")
+	}
+
+	searchLines := strings.Split(strings.TrimSuffix(search, "\n"), "\n")
+	replaceLines := strings.Split(strings.TrimSuffix(replace, "\n"), "\n")
+
+	displayPath := path
+	if rel, err := filepath.Rel(e.workspace, path); err == nil {
+		displayPath = rel
+	}
+
+	mylogger.Printf("--- a/%s\n", displayPath)
+	mylogger.Printf("+++ b/%s\n", displayPath)
+
+	startLine := len(beforeLines) + 1
+
+	mylogger.DiffHeader("@@ -%d,%d +%d,%d @@", startLine, len(searchLines), startLine, len(replaceLines))
+
+	// Context before (max 3 lines)
+	contextBefore := 3
+	if len(beforeLines) < contextBefore {
+		contextBefore = len(beforeLines)
+	}
+	for i := len(beforeLines) - contextBefore; i < len(beforeLines); i++ {
+		if i >= 0 && i < len(beforeLines) {
+			mylogger.Printf("  %s\n", beforeLines[i])
+		}
+	}
+
+	// Red removals
+	for _, line := range searchLines {
+		mylogger.DiffMinus("- %s", line)
+	}
+
+	// Green additions
+	for _, line := range replaceLines {
+		mylogger.DiffPlus("+ %s", line)
+	}
+
+	// Context after (max 3 lines)
+	contextAfter := 3
+	if len(afterLines) < contextAfter {
+		contextAfter = len(afterLines)
+	}
+	for i := 0; i < contextAfter; i++ {
+		if i < len(afterLines) {
+			mylogger.Printf("  %s\n", afterLines[i])
+		}
+	}
 }
 
 func (e *Executor) listDirectory(path string) (map[string]any, error) {

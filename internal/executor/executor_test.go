@@ -145,3 +145,80 @@ func TestPathInWorkspaceRestriction(t *testing.T) {
 		t.Errorf("expected access denied error on write, got: %v", res3)
 	}
 }
+
+func TestExecutePatchFile(t *testing.T) {
+	exec, err := NewExecutor()
+	if err != nil {
+		t.Fatalf("failed to create executor: %v", err)
+	}
+
+	tempFile := "temp_patch_test.txt"
+	defer os.Remove(tempFile)
+
+	initialContent := "hello world\nthis is unique line\nhello world\n"
+	err = os.WriteFile(tempFile, []byte(initialContent), 0644)
+	if err != nil {
+		t.Fatalf("failed to write temp file: %v", err)
+	}
+
+	// 1. Success patch
+	res, err := exec.Execute("patch_file", map[string]any{
+		"path":    tempFile,
+		"search":  "this is unique line",
+		"replace": "this is modified unique line",
+	})
+	if err != nil {
+		t.Fatalf("execute patch failed: %v", err)
+	}
+	if status, ok := res["status"].(string); !ok || status != "success" {
+		t.Fatalf("expected status success, got: %v", res)
+	}
+
+	// Read and verify
+	data, _ := os.ReadFile(tempFile)
+	if !strings.Contains(string(data), "this is modified unique line") {
+		t.Errorf("patch was not applied, file content: %s", string(data))
+	}
+
+	// 2. Fails: not found
+	res2, err := exec.Execute("patch_file", map[string]any{
+		"path":    tempFile,
+		"search":  "nonexistent search pattern",
+		"replace": "foo",
+	})
+	if err != nil {
+		t.Fatalf("execute failed: %v", err)
+	}
+	errStr2, ok2 := res2["error"].(string)
+	if !ok2 || !strings.Contains(errStr2, "not found") {
+		t.Errorf("expected search not found error, got: %v", res2)
+	}
+
+	// 3. Fails: ambiguous (matches "hello world" twice)
+	res3, err := exec.Execute("patch_file", map[string]any{
+		"path":    tempFile,
+		"search":  "hello world",
+		"replace": "hello space",
+	})
+	if err != nil {
+		t.Fatalf("execute failed: %v", err)
+	}
+	errStr3, ok3 := res3["error"].(string)
+	if !ok3 || !strings.Contains(errStr3, "ambiguous") {
+		t.Errorf("expected ambiguous patch error, got: %v", res3)
+	}
+
+	// 4. Fails: outside workspace boundary
+	res4, err := exec.Execute("patch_file", map[string]any{
+		"path":    "../outside_patch.txt",
+		"search":  "foo",
+		"replace": "bar",
+	})
+	if err != nil {
+		t.Fatalf("execute failed: %v", err)
+	}
+	errStr4, ok4 := res4["error"].(string)
+	if !ok4 || !strings.Contains(errStr4, "access denied") {
+		t.Errorf("expected access denied error, got: %v", res4)
+	}
+}

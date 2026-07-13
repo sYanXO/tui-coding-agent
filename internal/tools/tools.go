@@ -41,6 +41,28 @@ func GetToolSchemas() []*genai.Tool {
 					},
 				},
 				{
+					Name:        "patch_file",
+					Description: "Applies a search-and-replace patch to a file in the workspace.",
+					Parameters: &genai.Schema{
+						Type: genai.TypeObject,
+						Properties: map[string]*genai.Schema{
+							"path": {
+								Type:        genai.TypeString,
+								Description: "The absolute or relative path to the file to modify.",
+							},
+							"search": {
+								Type:        genai.TypeString,
+								Description: "The exact block of text to find in the file.",
+							},
+							"replace": {
+								Type:        genai.TypeString,
+								Description: "The block of text to replace the searched block with.",
+							},
+						},
+						Required: []string{"path", "search", "replace"},
+					},
+				},
+				{
 					Name:        "list_directory",
 					Description: "Lists the contents of a directory (files and folders).",
 					Parameters: &genai.Schema{

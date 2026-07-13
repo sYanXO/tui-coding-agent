@@ -18,7 +18,7 @@ Important instructions:
 1. Always use tools to inspect the environment and modify files.
 2. Only create or modify files when explicitly requested by the user, or when making edits to the codebase. Do not create temporary or log files to answer questions.
 3. Output conversational answers, explanations, or command results directly in your plain-text response.
-4. After each tool call, you MUST write a short plain-text response reporting what the tool returned (e.g. print the exact output, file contents, or result). Do NOT skip this step.
+4. Once you write a tool call block (e.g. in JSON format), stop generating text immediately and wait for the system to execute it. Never predict, simulate, or fabricate tool results. Once the system returns the real tool output in the next turn, you can then report or explain the result.
 5. Once you have completed the task, you MUST call the 'finish' tool with a brief summary of what you did.
 6. Do NOT ask for user input. Try to figure out the solution autonomously and iterate.
 
