@@ -13,7 +13,10 @@ import (
 )
 
 type Executor struct {
-	workspace string
+	workspace    string
+	useSandbox   bool
+	sandboxImage string
+	sandboxShell string
 }
 
 func NewExecutor() (*Executor, error) {
@@ -21,7 +24,28 @@ func NewExecutor() (*Executor, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &Executor{workspace: cwd}, nil
+
+	useSandbox := os.Getenv("DOCKER_SANDBOX") == "true"
+	sandboxImage := os.Getenv("DOCKER_IMAGE")
+	if sandboxImage == "" {
+		sandboxImage = "golang:1.26.5-alpine"
+	}
+
+	sandboxShell := os.Getenv("DOCKER_SHELL")
+	if sandboxShell == "" {
+		if strings.Contains(sandboxImage, "alpine") {
+			sandboxShell = "sh"
+		} else {
+			sandboxShell = "bash"
+		}
+	}
+
+	return &Executor{
+		workspace:    cwd,
+		useSandbox:   useSandbox,
+		sandboxImage: sandboxImage,
+		sandboxShell: sandboxShell,
+	}, nil
 }
 
 func (e *Executor) Execute(name string, args map[string]any) (map[string]any, error) {
@@ -138,8 +162,6 @@ func (e *Executor) searchFiles(query string) (map[string]any, error) {
 }
 
 func (e *Executor) runBash(command string) (map[string]any, error) {
-	mylogger.Tool("Running bash: %s", command)
-
 	// Safety checks
 	forbidden := []string{"sudo ", "shutdown", "rm -rf /", "cd .."}
 	for _, word := range forbidden {
@@ -151,8 +173,55 @@ func (e *Executor) runBash(command string) (map[string]any, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	cmd := exec.CommandContext(ctx, "bash", "-c", command)
-	cmd.Dir = e.workspace
+	var cmd *exec.Cmd
+	if e.useSandbox {
+		mylogger.Tool("Running inside Docker sandbox (%s): %s", e.sandboxImage, command)
+
+		uid := os.Getuid()
+		gid := os.Getgid()
+
+		dockerArgs := []string{
+			"run", "--rm",
+			"-i",
+			"-u", fmt.Sprintf("%d:%d", uid, gid),
+			"-v", fmt.Sprintf("%s:/workspace", e.workspace),
+			"-w", "/workspace",
+			"-e", "HOME=/tmp",
+		}
+
+		// Mount Go build cache if exists on host
+		hostGoCache := os.Getenv("GOCACHE")
+		if hostGoCache == "" {
+			if home, err := os.UserHomeDir(); err == nil && home != "" {
+				hostGoCache = filepath.Join(home, ".cache", "go-build")
+			}
+		}
+		if hostGoCache != "" {
+			if _, err := os.Stat(hostGoCache); err == nil {
+				dockerArgs = append(dockerArgs, "-v", fmt.Sprintf("%s:/go-cache", hostGoCache), "-e", "GOCACHE=/go-cache")
+			}
+		}
+
+		// Mount Go module cache if exists on host
+		hostGoModCache := os.Getenv("GOMODCACHE")
+		if hostGoModCache == "" {
+			if home, err := os.UserHomeDir(); err == nil && home != "" {
+				hostGoModCache = filepath.Join(home, "go", "pkg", "mod")
+			}
+		}
+		if hostGoModCache != "" {
+			if _, err := os.Stat(hostGoModCache); err == nil {
+				dockerArgs = append(dockerArgs, "-v", fmt.Sprintf("%s:/go-mod-cache", hostGoModCache), "-e", "GOMODCACHE=/go-mod-cache")
+			}
+		}
+
+		dockerArgs = append(dockerArgs, e.sandboxImage, e.sandboxShell, "-c", command)
+		cmd = exec.CommandContext(ctx, "docker", dockerArgs...)
+	} else {
+		mylogger.Tool("Running bash: %s", command)
+		cmd = exec.CommandContext(ctx, "bash", "-c", command)
+		cmd.Dir = e.workspace
+	}
 
 	output, err := cmd.CombinedOutput()
 	exitCode := 0

@@ -67,7 +67,7 @@ func (o *OllamaClient) GenerateContentStream(ctx context.Context, history []*gen
 				role = "assistant"
 			}
 			
-			// Simple mapping: just take the text. Tool calling mapping is omitted for this simple test.
+			// Serialize tool calls and their results so the model can see command output.
 			var content string
 			for _, p := range h.Parts {
 				if p.Text != "" {
@@ -75,7 +75,13 @@ func (o *OllamaClient) GenerateContentStream(ctx context.Context, history []*gen
 				} else if p.FunctionCall != nil {
 					content += fmt.Sprintf("\n[Tool Call: %s]", p.FunctionCall.Name)
 				} else if p.FunctionResponse != nil {
-					content += fmt.Sprintf("\n[Tool Result: %s]", p.FunctionResponse.Name)
+					// Marshal the actual response so the model sees stdout, file contents, etc.
+					resultBytes, err := json.Marshal(p.FunctionResponse.Response)
+					if err != nil {
+						content += fmt.Sprintf("\n[Tool Result: %s: (marshal error)]", p.FunctionResponse.Name)
+					} else {
+						content += fmt.Sprintf("\n[Tool Result: %s]\n%s", p.FunctionResponse.Name, string(resultBytes))
+					}
 				}
 			}
 			

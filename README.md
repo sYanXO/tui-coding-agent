@@ -28,9 +28,10 @@ We took a spec, picked Go + Gemini, and iterated until a small language model ru
 - Stops on `finish`, fatal error, or after 15 iterations
 - Retries automatically on Gemini 429 rate limit errors (35s backoff, 3 attempts)
 
-**Safety:**
-- Blocks `sudo`, `shutdown`, `rm -rf /`, `cd ..`
-- Locks `run_bash` working directory to the project root
+**Safety & Sandboxing:**
+- Optional Docker Sandbox for secure shell execution (`run_bash`).
+- Active safety checks (blocking `sudo`, `shutdown`, `rm -rf /`, `cd ..` on host).
+- Mounts workspace and caches (`GOCACHE`, `GOMODCACHE`) with host user permissions (`-u $(id -u):$(id -g)`) to avoid permission issues and optimize compilation speed.
 
 **CLI commands:** `exit`, `quit`, `clear`, `help`
 
@@ -80,6 +81,10 @@ Without a termination signal, the agent loops forever. The model needs an explic
 
 `sudo`, `rm -rf /`, `shutdown` — all caught by a simple `strings.Contains` check before the command hits `exec.Command`. The working directory is locked to the project root via `cmd.Dir`. It's not a sandbox. It's a speed bump. For a personal dev tool it's enough.
 
+### 11. Local Model Bottleneck: Hallucinating Output Before Execution
+
+We discovered that smaller local models (like `qwen2.5-coder:7b`) sometimes hallucinate and output fabricated shell command results *before* the tool has actually run. However, once the tool execution completes and the actual stdout/stderr is appended to the message history, the model self-corrects on the subsequent turn and uses the real output values for the final task completion.
+
 ---
 
 ## What We Built, In Order
@@ -95,6 +100,9 @@ Without a termination signal, the agent loops forever. The model needs an explic
 9. Added the raw JSON fallback parser for local models.
 10. Upgraded to multi-block parsing so Qwen's batched plans fully execute.
 11. Tested on `qwen2.5-coder:7b` running locally. It worked.
+12. Implemented Docker sandboxing for the `run_bash` tool with UID/GID permission mapping and Go build/module cache mounts.
+13. Added robust shell detection (falling back to `sh` when `bash` is unavailable, e.g., on Alpine).
+14. Fixed tool result serialization in Ollama client to forward actual outputs back to the model.
 
 ---
 
@@ -104,3 +112,12 @@ Without a termination signal, the agent loops forever. The model needs an explic
 - **Cloud model:** Gemini 2.5 Flash (via `google.golang.org/genai`)
 - **Local model:** Qwen 2.5 Coder 7B (via Ollama's HTTP API)
 - **Switching between them:** `export LLM_PROVIDER=ollama`
+
+## Docker Sandboxing
+
+To isolate shell commands executed by the agent, you can enable Docker sandboxing:
+1. Set `DOCKER_SANDBOX=true` in your environment or `.env` file.
+2. (Optional) Customize the image using `DOCKER_IMAGE` (defaults to `golang:1.26.5-alpine`).
+3. (Optional) Customize the shell using `DOCKER_SHELL` (defaults to `sh` for Alpine-based images, and `bash` otherwise).
+
+This mounts your workspace and leverages host Go build and module caches for near-zero compilation overhead, running commands securely as the host user to prevent permission issues.
