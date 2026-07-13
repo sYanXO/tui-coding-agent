@@ -10,6 +10,10 @@ agent
 *.test
 *.out
 
+# Agent index
+.agent_index.json
+**/.agent_index.json
+
 # OS
 .DS_Store
 Thumbs.db
