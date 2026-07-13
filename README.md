@@ -15,6 +15,7 @@ We took a spec, picked Go + Gemini, and iterated until a small language model ru
 **Agent tools:**
 - `read_file` — read any file in the workspace
 - `write_file` — create or overwrite files
+- `patch_file` — surgical search-and-replace edits with live git-diff style output (red/green)
 - `list_directory` — list files and folders at a path
 - `search_files` — search filenames across the workspace
 - `run_bash` — execute shell commands with a 30-second timeout
@@ -81,9 +82,29 @@ Without a termination signal, the agent loops forever. The model needs an explic
 
 `sudo`, `rm -rf /`, `shutdown` — all caught by a simple `strings.Contains` check before the command hits `exec.Command`. The working directory is locked to the project root via `cmd.Dir`. It's not a sandbox. It's a speed bump. For a personal dev tool it's enough.
 
-### 11. Local Model Bottleneck: Hallucinating Output Before Execution
+### 11. Local Models Hallucinate Tool Results Before the Tool Runs
 
-We discovered that smaller local models (like `qwen2.5-coder:7b`) sometimes hallucinate and output fabricated shell command results *before* the tool has actually run. However, once the tool execution completes and the actual stdout/stderr is appended to the message history, the model self-corrects on the subsequent turn and uses the real output values for the final task completion.
+**Problem:** When asked to patch a file, `qwen2.5-coder:7b` would output a JSON tool call block and then immediately continue generating text that *fabricated* the tool's result — printing `Report: The file has been patched. New contents: ...` before the tool had actually executed a single line of Go code. The hallucinated output would often be subtly wrong (wrong file content, wrong line numbers), and because the model had already "seen" a fake result in its own output, it would treat the task as done and call `finish` — sometimes without the real tool ever running.
+
+**Why it happens:** These models are trained on agentic traces where the tool call JSON and the tool result appear close together. The model learned to complete that pattern by predicting the result, rather than waiting for external execution. It's not a bug in the model — it's a boundary problem: the model doesn't know where its output ends and the system's response begins.
+
+**Bottleneck:** There is no reliable way to force a partially-streaming local model to stop mid-response. Unlike Gemini (which returns a structured `FunctionCall` object that terminates the text stream), local models via Ollama just keep generating tokens. By the time we detect a `{"name": "patch_file", ...}` block in the stream, several more fabricated lines have already been generated and appended to `fullText`.
+
+**Fix 1 — System Prompt (temp fix):** Updated the system instruction to explicitly forbid predicting tool outputs: *"Once you write a tool call block, stop generating text immediately and wait for the system to execute it. Never predict, simulate, or fabricate tool results."* This reduced hallucination frequency significantly on `qwen2.5-coder:7b`, though it is not 100% reliable — a sufficiently pattern-driven model will still occasionally slip through.
+
+**Fix 2 — Error Resilience:** The real defence is the agent loop itself. When a tool is actually executed and returns an error (e.g. `search block not found` because the model already applied the patch in an earlier real call), that error is fed back into the conversation as the true tool result. The model then reads the real state of the file and self-corrects. Hallucinated output pollutes the context but doesn't corrupt the file system — the tool executor is the ground truth.
+
+### 12. `write_file` Is Too Blunt — `patch_file` Fixes Targeted Edits
+
+The original `write_file` tool overwrites the entire file. For any edit task, the model has to read the whole file, mentally apply the change, and re-emit the complete new content. On a large file this burns tokens, introduces transcription errors, and loses the developer's ability to see what actually changed.
+
+`patch_file` takes a `search` block and a `replace` block. The executor validates the search string exists exactly once (returns `search block matches multiple times, patch is ambiguous` if not), applies the replacement, and then prints a unified diff to the terminal in real time — cyan hunk header, red removals, green additions, 3 lines of surrounding context — before writing the file. Developers immediately see what changed, in the same visual language as `git diff`.
+
+### 13. Local Models Ignore Your Schema — Parameter Aliasing Saves the Day
+
+Even with a well-defined tool schema (`path`, `search`, `replace`), `qwen2.5-coder:7b` consistently called `patch_file` with its own preferred argument names: `file_path`, `search_pattern`, and `replacement`. The dispatcher returned `missing or invalid arguments` and the tool never ran.
+
+The fix is alias resolution in the executor's dispatch layer. Before failing, each tool now checks a ranked list of alternative key names and promotes the first match to the canonical parameter. This costs two extra map lookups per tool call and makes the agent work correctly with any model that has a reasonable idea of what the argument means, regardless of what it chose to name it.
 
 ---
 
@@ -103,6 +124,11 @@ We discovered that smaller local models (like `qwen2.5-coder:7b`) sometimes hall
 12. Implemented Docker sandboxing for the `run_bash` tool with UID/GID permission mapping and Go build/module cache mounts.
 13. Added robust shell detection (falling back to `sh` when `bash` is unavailable, e.g., on Alpine).
 14. Fixed tool result serialization in Ollama client to forward actual outputs back to the model.
+15. Added workspace path boundary enforcement to `read_file`, `write_file`, `list_directory` — blocks traversal outside the project root.
+16. Added `reboot` to the forbidden command list in `run_bash` (was missing from the original spec implementation).
+17. Implemented `patch_file`: surgical search-and-replace with uniqueness validation, ambiguity detection, and live git-diff style terminal output (coloured red/green).
+18. Added parameter aliasing to the tool dispatcher so local models using non-canonical argument names (`file_path`, `search_pattern`, `replacement`, etc.) still work correctly.
+19. Updated system prompt to explicitly prevent local models from hallucinating fabricated tool results before execution.
 
 ---
 
