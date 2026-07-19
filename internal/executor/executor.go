@@ -26,7 +26,14 @@ func NewExecutor() (*Executor, error) {
 	if err != nil {
 		return nil, err
 	}
+	return NewExecutorForWorkspace(cwd)
+}
 
+func NewExecutorForWorkspace(workspace string) (*Executor, error) {
+	workspace, err := filepath.Abs(workspace)
+	if err != nil {
+		return nil, err
+	}
 	useSandbox := os.Getenv("DOCKER_SANDBOX") == "true"
 	sandboxImage := os.Getenv("DOCKER_IMAGE")
 	if sandboxImage == "" {
@@ -42,17 +49,21 @@ func NewExecutor() (*Executor, error) {
 		}
 	}
 
-	idx := index.NewIndexer(cwd)
+	idx := index.NewIndexer(workspace)
 	// Run initial scan to orient the agent on startup
 	_ = idx.Scan()
 
 	return &Executor{
-		workspace:    cwd,
+		workspace:    workspace,
 		useSandbox:   useSandbox,
 		sandboxImage: sandboxImage,
 		sandboxShell: sandboxShell,
 		indexer:      idx,
 	}, nil
+}
+
+func (e *Executor) Workspace() string {
+	return e.workspace
 }
 
 func (e *Executor) Execute(name string, args map[string]any) (map[string]any, error) {

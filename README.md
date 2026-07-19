@@ -25,6 +25,7 @@ A local terminal coding agent written in Go. It can inspect a repository, call t
 - Indexes Go symbols for repository navigation.
 - Lists symbols in a Go file.
 - Searches symbols by name.
+- Runs deterministic scripted evals against fixture repositories.
 
 ## What It Cannot Yet Do
 
@@ -77,3 +78,19 @@ Optional environment variables:
 - `clear`
 - `exit`
 - `quit`
+
+## Evals
+
+Run all scripted evals:
+
+```sh
+GOCACHE=/tmp/go-build-cache go run ./cmd/eval
+```
+
+Run one eval:
+
+```sh
+GOCACHE=/tmp/go-build-cache go run ./cmd/eval -task fix-go-test-basic
+```
+
+Eval tasks live under `evals/tasks`, fixtures under `evals/fixtures`, and scripted tool traces under `evals/scripts`. The eval runner copies each fixture into a temporary workspace, replays the scripted tool calls through the real agent loop, runs the task's check command, and verifies expected or forbidden file changes.

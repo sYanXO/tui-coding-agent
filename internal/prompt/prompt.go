@@ -9,7 +9,10 @@ var osGetwd = os.Getwd
 
 func GetSystemInstruction() string {
 	cwd, _ := osGetwd()
+	return GetSystemInstructionForWorkspace(cwd)
+}
 
+func GetSystemInstructionForWorkspace(cwd string) string {
 	return fmt.Sprintf(`You are a terminal-based autonomous coding agent.
 Your objective is to help the user with their coding tasks.
 You can read files, write files, search directories, and execute bash commands.

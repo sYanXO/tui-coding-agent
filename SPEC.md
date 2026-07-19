@@ -25,6 +25,7 @@ The agent should be able to:
 - Modify source code.
 - Iterate until the task is complete.
 - Explain what it changed.
+- Run deterministic scripted eval tasks against fixture repositories.
 
 Example:
 

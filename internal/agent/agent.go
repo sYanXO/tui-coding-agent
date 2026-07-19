@@ -20,12 +20,31 @@ import (
 )
 
 type Agent struct {
-	llmClient llm.Provider
-	mem       *memory.Memory
-	exec      *executor.Executor
-	tools     []*genai.Tool
-	tokens    *token.Counter
-	Provider  string // "gemini" or "ollama"
+	llmClient     llm.Provider
+	mem           *memory.Memory
+	exec          *executor.Executor
+	tools         []*genai.Tool
+	tokens        *token.Counter
+	maxIterations int
+	stats         RunStats
+	Provider      string // "gemini" or "ollama"
+}
+
+type Options struct {
+	Provider      llm.Provider
+	ProviderName  string
+	Executor      *executor.Executor
+	Tools         []*genai.Tool
+	MaxIterations int
+}
+
+type RunStats struct {
+	FinishCalled  bool     `json:"finish_called"`
+	FinishMessage string   `json:"finish_message,omitempty"`
+	Iterations    int      `json:"iterations"`
+	ToolCalls     int      `json:"tool_calls"`
+	ToolErrors    int      `json:"tool_errors"`
+	ToolCallNames []string `json:"tool_call_names"`
 }
 
 func NewAgent(ctx context.Context, apiKey string) (*Agent, error) {
@@ -49,33 +68,71 @@ func NewAgent(ctx context.Context, apiKey string) (*Agent, error) {
 		return nil, err
 	}
 
+	return NewAgentWithOptions(Options{
+		Provider:     client,
+		ProviderName: provider,
+		Executor:     exec,
+	})
+}
+
+func NewAgentWithOptions(opts Options) (*Agent, error) {
+	if opts.Provider == nil {
+		return nil, fmt.Errorf("agent provider is required")
+	}
+
+	exec := opts.Executor
+	if exec == nil {
+		var err error
+		exec, err = executor.NewExecutor()
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	toolSchemas := opts.Tools
+	if toolSchemas == nil {
+		toolSchemas = tools.GetToolSchemas()
+	}
+
+	maxIterations := opts.MaxIterations
+	if maxIterations <= 0 {
+		maxIterations = 15
+	}
+
+	providerName := opts.ProviderName
+	if providerName == "" {
+		providerName = "custom"
+	}
+
 	return &Agent{
-		llmClient: client,
-		mem:       memory.NewMemory(),
-		exec:      exec,
-		tools:     tools.GetToolSchemas(),
-		tokens:    &token.Counter{},
-		Provider:  provider,
+		llmClient:     opts.Provider,
+		mem:           memory.NewMemory(),
+		exec:          exec,
+		tools:         toolSchemas,
+		tokens:        &token.Counter{},
+		maxIterations: maxIterations,
+		Provider:      providerName,
 	}, nil
 }
 
 // HandleUserRequest runs the agent loop for the given input.
 func (a *Agent) HandleUserRequest(ctx context.Context, input string) error {
+	a.stats = RunStats{}
 	a.mem.AddUserMessage(input)
 	return a.loop(ctx)
 }
 
 func (a *Agent) loop(ctx context.Context) error {
-	maxIterations := 15
 	iteration := 0
 
 	for {
-		if iteration >= maxIterations {
+		if iteration >= a.maxIterations {
 			msg := "Maximum iterations reached."
 			mylogger.Error(msg)
 			return fmt.Errorf("max iterations reached")
 		}
 		iteration++
+		a.stats.Iterations = iteration
 
 		mylogger.AgentStream("Thinking... ")
 
@@ -87,7 +144,7 @@ func (a *Agent) loop(ctx context.Context) error {
 		retryCount := 0
 
 		for {
-			iter := a.llmClient.GenerateContentStream(ctx, a.mem.GetHistory(), prompt.GetSystemInstruction(), a.tools)
+			iter := a.llmClient.GenerateContentStream(ctx, a.mem.GetHistory(), prompt.GetSystemInstructionForWorkspace(a.exec.Workspace()), a.tools)
 			var streamErr error
 
 			for resp, err := range iter {
@@ -198,6 +255,9 @@ func (a *Agent) loop(ctx context.Context) error {
 }
 
 func (a *Agent) handleToolCall(call *genai.FunctionCall) bool {
+	a.stats.ToolCalls++
+	a.stats.ToolCallNames = append(a.stats.ToolCallNames, call.Name)
+
 	if call.Name == "finish" {
 		msg := "Task completed."
 		if call.Args != nil {
@@ -207,6 +267,8 @@ func (a *Agent) handleToolCall(call *genai.FunctionCall) bool {
 				msg = m
 			}
 		}
+		a.stats.FinishCalled = true
+		a.stats.FinishMessage = msg
 		mylogger.Agent("Agent Finished: %s", msg)
 		return true // done
 	}
@@ -215,9 +277,13 @@ func (a *Agent) handleToolCall(call *genai.FunctionCall) bool {
 
 	result, err := a.exec.Execute(call.Name, call.Args)
 	if err != nil {
+		a.stats.ToolErrors++
 		mylogger.Error("Tool %s failed: %v", call.Name, err)
 		a.mem.AddFunctionResponse(call.Name, map[string]any{"error": err.Error()})
 	} else {
+		if _, ok := result["error"]; ok {
+			a.stats.ToolErrors++
+		}
 		a.mem.AddFunctionResponse(call.Name, result)
 	}
 	return false
@@ -264,6 +330,10 @@ func extractAllJSONCalls(text string) []*genai.FunctionCall {
 // TokenSummary returns the session token summary string.
 func (a *Agent) TokenSummary() string {
 	return a.tokens.Summary()
+}
+
+func (a *Agent) RunStats() RunStats {
+	return a.stats
 }
 
 func (a *Agent) PrintSessionSummary() {

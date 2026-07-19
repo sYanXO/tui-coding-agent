@@ -1,0 +1,12 @@
+{
+  "id": "fix-go-test-basic",
+  "description": "Fix a failing Go unit test with a targeted patch.",
+  "prompt": "Fix the failing tests.",
+  "fixture": "fixtures/go-basic",
+  "script": "scripts/fix-go-test-basic.json",
+  "checks": {
+    "command": "go test ./...",
+    "expected_files_changed": ["math.go"],
+    "forbidden_files_changed": ["go.mod"]
+  }
+}

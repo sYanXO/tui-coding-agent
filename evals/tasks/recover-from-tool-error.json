@@ -1,0 +1,12 @@
+{
+  "id": "recover-from-tool-error",
+  "description": "Recover after an initial patch misses and still finish with the expected scoped fix.",
+  "prompt": "Fix the failing Add test.",
+  "fixture": "fixtures/go-basic",
+  "script": "scripts/recover-from-tool-error.json",
+  "checks": {
+    "command": "go test ./...",
+    "expected_files_changed": ["math.go"],
+    "forbidden_files_changed": ["go.mod", "math_test.go"]
+  }
+}

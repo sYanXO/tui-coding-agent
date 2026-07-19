@@ -9,8 +9,6 @@ import (
 
 	"terminal-coding-agent/internal/executor"
 	"terminal-coding-agent/internal/logger"
-	"terminal-coding-agent/internal/memory"
-	"terminal-coding-agent/internal/token"
 )
 
 func init() {
@@ -61,13 +59,13 @@ func TestLoopStoresNativeFunctionCallsBeforeResponses(t *testing.T) {
 		},
 	}
 
-	ag := &Agent{
-		llmClient: provider,
-		mem:       memory.NewMemory(),
-		exec:      exec,
-		tools:     nil,
-		tokens:    &token.Counter{},
-		Provider:  "fake",
+	ag, err := NewAgentWithOptions(Options{
+		Provider:     provider,
+		ProviderName: "fake",
+		Executor:     exec,
+	})
+	if err != nil {
+		t.Fatalf("NewAgentWithOptions failed: %v", err)
 	}
 
 	if err := ag.HandleUserRequest(context.Background(), "read the readme"); err != nil {
