@@ -8,7 +8,7 @@ Terminal Coding Agent
 
 # Objective
 
-Build a terminal-based autonomous coding agent capable of understanding a software project, executing commands, modifying files, and iteratively solving programming tasks using the Gemini API.
+Build a terminal-based autonomous coding agent capable of understanding a software project, executing commands, modifying files, and iteratively solving programming tasks using an LLM provider.
 
 The focus is on agent orchestration + frontend/UI.
 
@@ -57,6 +57,7 @@ Language:
 
 LLM:
 - Gemini API
+- Ollama local models
 
 Interface:
 - Terminal (CLI)
@@ -75,8 +76,6 @@ Do NOT implement:
 
 - GUI
 - Web interface
-- Multiple LLM providers
-- Docker sandbox
 - Git commits
 - Plugin system
 - MCP
@@ -100,7 +99,10 @@ Agent
 
 ↓
 
-Gemini API
+LLM Provider
+
+├── Gemini
+├── Ollama
 
 ↓
 
@@ -108,8 +110,10 @@ Tool Dispatcher
 
 ├── Read File
 ├── Write File
+├── Patch File
 ├── List Directory
 ├── Search Files
+├── Symbol Index
 ├── Bash Executor
 
 ↓

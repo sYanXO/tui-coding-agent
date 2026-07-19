@@ -81,6 +81,7 @@ func (a *Agent) loop(ctx context.Context) error {
 
 		var fullText string
 		var finalResponse *genai.GenerateContentResponse
+		var nativeToolCalls []*genai.FunctionCall
 
 		maxRetries := 3
 		retryCount := 0
@@ -106,6 +107,9 @@ func (a *Agent) loop(ctx context.Context) error {
 						if part.Text != "" {
 							mylogger.AgentStream(part.Text)
 							fullText += part.Text
+						}
+						if part.FunctionCall != nil {
+							nativeToolCalls = append(nativeToolCalls, part.FunctionCall)
 						}
 					}
 				}
@@ -139,23 +143,33 @@ func (a *Agent) loop(ctx context.Context) error {
 			return nil
 		}
 
-		// Build a clean model Content from the full accumulated text.
-		// This is critical for streamed responses (e.g. Ollama) where
-		// finalResponse.Candidates[0].Content only holds the last chunk.
-		fullModelContent := &genai.Content{
-			Role: "model",
-			Parts: []*genai.Part{
-				{Text: fullText},
-			},
+		// Build a clean model Content from the accumulated text and any native
+		// function calls. Streamed text providers need fullText, while Gemini
+		// needs the function-call parts echoed before function responses.
+		modelParts := make([]*genai.Part, 0, 1+len(nativeToolCalls))
+		if fullText != "" {
+			modelParts = append(modelParts, &genai.Part{Text: fullText})
 		}
+		for _, call := range nativeToolCalls {
+			modelParts = append(modelParts, &genai.Part{FunctionCall: call})
+		}
+		fullModelContent := &genai.Content{Role: "model", Parts: modelParts}
 		a.mem.AddModelContent(fullModelContent)
 
 		// Check for native function calls (Gemini)
 		hasToolCall := false
-		if finalResponse != nil && len(finalResponse.Candidates) > 0 {
+		for _, call := range nativeToolCalls {
+			hasToolCall = true
+			if a.handleToolCall(call) {
+				return nil
+			}
+		}
+
+		if len(nativeToolCalls) == 0 && finalResponse != nil && len(finalResponse.Candidates) > 0 {
 			for _, part := range finalResponse.Candidates[0].Content.Parts {
 				if part.FunctionCall != nil {
 					hasToolCall = true
+					fullModelContent.Parts = append(fullModelContent.Parts, &genai.Part{FunctionCall: part.FunctionCall})
 					if a.handleToolCall(part.FunctionCall) {
 						return nil
 					}

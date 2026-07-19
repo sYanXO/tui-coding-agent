@@ -9,10 +9,11 @@ var osGetwd = os.Getwd
 
 func GetSystemInstruction() string {
 	cwd, _ := osGetwd()
-	
+
 	return fmt.Sprintf(`You are a terminal-based autonomous coding agent.
 Your objective is to help the user with their coding tasks.
 You can read files, write files, search directories, and execute bash commands.
+Shell commands run from the workspace. They are not fully isolated unless Docker sandboxing is enabled.
 
 Important instructions:
 1. Always use tools to inspect the environment and modify files.

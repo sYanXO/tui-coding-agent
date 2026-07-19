@@ -92,7 +92,7 @@ func GetToolSchemas() []*genai.Tool {
 				},
 				{
 					Name:        "run_bash",
-					Description: "Executes a shell command in the current workspace. Restricted from using sudo, shutdown, rm -rf /, or leaving the workspace.",
+					Description: "Executes a shell command from the current workspace with a timeout and basic forbidden-command checks. Set DOCKER_SANDBOX=true for container isolation.",
 					Parameters: &genai.Schema{
 						Type: genai.TypeObject,
 						Properties: map[string]*genai.Schema{

@@ -9,8 +9,8 @@ import (
 	"strings"
 	"time"
 
-	mylogger "terminal-coding-agent/internal/logger"
 	"terminal-coding-agent/internal/index"
+	mylogger "terminal-coding-agent/internal/logger"
 )
 
 type Executor struct {
@@ -231,6 +231,11 @@ func (e *Executor) Execute(name string, args map[string]any) (map[string]any, er
 }
 
 func (e *Executor) isPathInWorkspace(path string) bool {
+	_, ok := e.resolveWorkspacePath(path)
+	return ok
+}
+
+func (e *Executor) resolveWorkspacePath(path string) (string, bool) {
 	var absPath string
 	if filepath.IsAbs(path) {
 		absPath = filepath.Clean(path)
@@ -254,18 +259,22 @@ func (e *Executor) isPathInWorkspace(path string) bool {
 
 	rel, err := filepath.Rel(workspaceToUse, absPath)
 	if err != nil {
-		return false
+		return "", false
 	}
 
-	return !strings.HasPrefix(rel, "..")
+	if rel == "." || (rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator))) {
+		return absPath, true
+	}
+	return "", false
 }
 
 func (e *Executor) readFile(path string) (map[string]any, error) {
-	if !e.isPathInWorkspace(path) {
+	resolvedPath, ok := e.resolveWorkspacePath(path)
+	if !ok {
 		return map[string]any{"error": "access denied: path is outside workspace"}, nil
 	}
 	mylogger.Tool("Reading file: %s", path)
-	content, err := os.ReadFile(path)
+	content, err := os.ReadFile(resolvedPath)
 	if err != nil {
 		return map[string]any{"error": err.Error()}, nil
 	}
@@ -273,11 +282,12 @@ func (e *Executor) readFile(path string) (map[string]any, error) {
 }
 
 func (e *Executor) writeFile(path string, content string) (map[string]any, error) {
-	if !e.isPathInWorkspace(path) {
+	resolvedPath, ok := e.resolveWorkspacePath(path)
+	if !ok {
 		return map[string]any{"error": "access denied: path is outside workspace"}, nil
 	}
 	mylogger.Tool("Writing file: %s", path)
-	err := os.WriteFile(path, []byte(content), 0644)
+	err := os.WriteFile(resolvedPath, []byte(content), 0644)
 	if err != nil {
 		return map[string]any{"error": err.Error()}, nil
 	}
@@ -285,12 +295,13 @@ func (e *Executor) writeFile(path string, content string) (map[string]any, error
 }
 
 func (e *Executor) patchFile(path string, search string, replace string) (map[string]any, error) {
-	if !e.isPathInWorkspace(path) {
+	resolvedPath, ok := e.resolveWorkspacePath(path)
+	if !ok {
 		return map[string]any{"error": "access denied: path is outside workspace"}, nil
 	}
 	mylogger.Tool("Patching file: %s", path)
 
-	contentBytes, err := os.ReadFile(path)
+	contentBytes, err := os.ReadFile(resolvedPath)
 	if err != nil {
 		return map[string]any{"error": err.Error()}, nil
 	}
@@ -308,10 +319,10 @@ func (e *Executor) patchFile(path string, search string, replace string) (map[st
 	newContent := strings.Replace(content, search, replace, 1)
 
 	// Print the diff in git-diff style
-	e.printDiff(path, content, search, replace)
+	e.printDiff(resolvedPath, content, search, replace)
 
 	// Write new content
-	err = os.WriteFile(path, []byte(newContent), 0644)
+	err = os.WriteFile(resolvedPath, []byte(newContent), 0644)
 	if err != nil {
 		return map[string]any{"error": err.Error()}, nil
 	}
@@ -386,11 +397,12 @@ func (e *Executor) printDiff(path string, content string, search string, replace
 }
 
 func (e *Executor) listDirectory(path string) (map[string]any, error) {
-	if !e.isPathInWorkspace(path) {
+	resolvedPath, ok := e.resolveWorkspacePath(path)
+	if !ok {
 		return map[string]any{"error": "access denied: path is outside workspace"}, nil
 	}
 	mylogger.Tool("Listing directory: %s", path)
-	entries, err := os.ReadDir(path)
+	entries, err := os.ReadDir(resolvedPath)
 	if err != nil {
 		return map[string]any{"error": err.Error()}, nil
 	}

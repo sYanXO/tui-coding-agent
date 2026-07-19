@@ -147,6 +147,61 @@ func TestPathInWorkspaceRestriction(t *testing.T) {
 	}
 }
 
+func TestResolveWorkspacePathAllowsDotDotPrefixedNames(t *testing.T) {
+	exec, err := NewExecutor()
+	if err != nil {
+		t.Fatalf("failed to create executor: %v", err)
+	}
+
+	path := "..inside_workspace_name.txt"
+	defer os.Remove(path)
+
+	if err := os.WriteFile(path, []byte("ok"), 0644); err != nil {
+		t.Fatalf("failed to write test file: %v", err)
+	}
+
+	res, err := exec.Execute("read_file", map[string]any{"path": path})
+	if err != nil {
+		t.Fatalf("execute failed: %v", err)
+	}
+	if errStr, ok := res["error"].(string); ok {
+		t.Fatalf("expected dot-dot-prefixed file inside workspace to be readable, got error: %s", errStr)
+	}
+	if got := res["content"].(string); got != "ok" {
+		t.Fatalf("expected content %q, got %q", "ok", got)
+	}
+}
+
+func TestResolveWorkspacePathBlocksSymlinkEscape(t *testing.T) {
+	exec, err := NewExecutor()
+	if err != nil {
+		t.Fatalf("failed to create executor: %v", err)
+	}
+
+	outside, err := os.CreateTemp("", "agent-outside-*")
+	if err != nil {
+		t.Fatalf("failed to create outside temp file: %v", err)
+	}
+	outside.Close()
+	defer os.Remove(outside.Name())
+
+	link := "outside_link_for_test"
+	defer os.Remove(link)
+
+	if err := os.Symlink(outside.Name(), link); err != nil {
+		t.Skipf("symlinks are not available: %v", err)
+	}
+
+	res, err := exec.Execute("read_file", map[string]any{"path": link})
+	if err != nil {
+		t.Fatalf("execute failed: %v", err)
+	}
+	errStr, ok := res["error"].(string)
+	if !ok || !strings.Contains(errStr, "access denied") {
+		t.Fatalf("expected access denied for symlink escape, got: %v", res)
+	}
+}
+
 func TestExecutePatchFile(t *testing.T) {
 	exec, err := NewExecutor()
 	if err != nil {
@@ -291,4 +346,3 @@ func TestExecuteIndexingTools(t *testing.T) {
 		t.Errorf("expected to find 'Execute' in listed symbols, got %v", listSyms)
 	}
 }
-
