@@ -90,3 +90,46 @@ func TestLoopStoresNativeFunctionCallsBeforeResponses(t *testing.T) {
 		t.Fatalf("expected function response at history[2], got %#v", toolResponse)
 	}
 }
+
+func TestAgentCompactsHistoryBeforeModelCall(t *testing.T) {
+	exec, err := executor.NewExecutor()
+	if err != nil {
+		t.Fatalf("NewExecutor failed: %v", err)
+	}
+
+	provider := &fakeProvider{
+		responses: []*genai.GenerateContentResponse{
+			responseWithFunctionCall("finish", map[string]any{"message": "done"}),
+		},
+	}
+
+	ag, err := NewAgentWithOptions(Options{
+		Provider:      provider,
+		ProviderName:  "fake",
+		Executor:      exec,
+		CompactAfter:  2,
+		CompactKeep:   1,
+		MaxIterations: 3,
+	})
+	if err != nil {
+		t.Fatalf("NewAgentWithOptions failed: %v", err)
+	}
+
+	ag.mem.AddUserMessage("old request")
+	ag.mem.AddModelMessage("old answer")
+
+	if err := ag.HandleUserRequest(context.Background(), "new request"); err != nil {
+		t.Fatalf("HandleUserRequest failed: %v", err)
+	}
+
+	if ag.stats.Compactions != 1 {
+		t.Fatalf("expected 1 compaction, got %d", ag.stats.Compactions)
+	}
+	history := ag.mem.GetHistory()
+	if len(history) < 2 {
+		t.Fatalf("expected compacted history plus final model content")
+	}
+	if history[0].Role != "user" || history[0].Parts[0].Text == "" {
+		t.Fatalf("expected summary as first history entry, got %#v", history[0])
+	}
+}

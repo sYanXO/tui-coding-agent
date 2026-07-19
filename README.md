@@ -12,6 +12,7 @@ A local terminal coding agent written in Go. It can inspect a repository, call t
 - Extracts JSON tool calls from local model text responses.
 - Executes multiple tool calls from one model response.
 - Keeps conversation and tool-result history across a session.
+- Compacts older conversation history during long sessions.
 - Tracks per-turn and session token usage when the provider reports it.
 - Retries Gemini 429 rate-limit errors.
 - Reads files inside the workspace.
@@ -39,7 +40,6 @@ A local terminal coding agent written in Go. It can inspect a repository, call t
 - It does not parse symbols for languages other than Go.
 - It does not manage long-running background commands.
 - Local model tool use depends on the model following the JSON tool-call format.
-- It does not compact long conversation history yet.
 
 ## Setup
 
@@ -71,6 +71,8 @@ Optional environment variables:
 - `OLLAMA_URL` defaults to `http://localhost:11434`.
 - `DOCKER_IMAGE` defaults to `golang:1.26.5-alpine`.
 - `DOCKER_SHELL` defaults to `sh` for Alpine images and `bash` otherwise.
+- `AGENT_COMPACT_AFTER_MESSAGES` defaults to `24`.
+- `AGENT_COMPACT_KEEP_MESSAGES` defaults to `10`.
 
 ## CLI Commands
 

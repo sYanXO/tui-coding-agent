@@ -150,6 +150,7 @@ help
 Responsibilities:
 
 - Maintain conversation history
+- Compact older history during long sessions
 - Send requests to Gemini
 - Execute tool calls
 - Continue until completion
@@ -364,6 +365,7 @@ Each request should include:
 
 - Current working directory
 - Conversation history
+- Compact summary of older history when needed
 - Tool outputs
 - User prompt
 

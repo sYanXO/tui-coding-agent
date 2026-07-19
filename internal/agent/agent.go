@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 
@@ -26,6 +27,8 @@ type Agent struct {
 	tools         []*genai.Tool
 	tokens        *token.Counter
 	maxIterations int
+	compactAfter  int
+	compactKeep   int
 	stats         RunStats
 	Provider      string // "gemini" or "ollama"
 }
@@ -36,6 +39,8 @@ type Options struct {
 	Executor      *executor.Executor
 	Tools         []*genai.Tool
 	MaxIterations int
+	CompactAfter  int
+	CompactKeep   int
 }
 
 type RunStats struct {
@@ -45,6 +50,7 @@ type RunStats struct {
 	ToolCalls     int      `json:"tool_calls"`
 	ToolErrors    int      `json:"tool_errors"`
 	ToolCallNames []string `json:"tool_call_names"`
+	Compactions   int      `json:"compactions"`
 }
 
 func NewAgent(ctx context.Context, apiKey string) (*Agent, error) {
@@ -99,6 +105,15 @@ func NewAgentWithOptions(opts Options) (*Agent, error) {
 		maxIterations = 15
 	}
 
+	compactAfter := optionOrEnv(opts.CompactAfter, "AGENT_COMPACT_AFTER_MESSAGES", 24)
+	compactKeep := optionOrEnv(opts.CompactKeep, "AGENT_COMPACT_KEEP_MESSAGES", 10)
+	if compactKeep >= compactAfter {
+		compactKeep = compactAfter / 2
+	}
+	if compactKeep < 1 {
+		compactKeep = 1
+	}
+
 	providerName := opts.ProviderName
 	if providerName == "" {
 		providerName = "custom"
@@ -111,6 +126,8 @@ func NewAgentWithOptions(opts Options) (*Agent, error) {
 		tools:         toolSchemas,
 		tokens:        &token.Counter{},
 		maxIterations: maxIterations,
+		compactAfter:  compactAfter,
+		compactKeep:   compactKeep,
 		Provider:      providerName,
 	}, nil
 }
@@ -133,6 +150,8 @@ func (a *Agent) loop(ctx context.Context) error {
 		}
 		iteration++
 		a.stats.Iterations = iteration
+
+		a.compactHistoryIfNeeded()
 
 		mylogger.AgentStream("Thinking... ")
 
@@ -289,6 +308,16 @@ func (a *Agent) handleToolCall(call *genai.FunctionCall) bool {
 	return false
 }
 
+func (a *Agent) compactHistoryIfNeeded() {
+	if a.compactAfter <= 0 || a.mem.Len() <= a.compactAfter {
+		return
+	}
+	if a.mem.Compact(a.compactKeep) {
+		a.stats.Compactions++
+		mylogger.System(fmt.Sprintf("Compacted conversation history to %d recent messages.", a.compactKeep))
+	}
+}
+
 // extractAllJSONCalls scans text for all ```json ... ``` blocks and parses
 // each one as a tool call. This lets us handle models (like Qwen) that plan
 // and output multiple tool calls in a single response.
@@ -338,4 +367,19 @@ func (a *Agent) RunStats() RunStats {
 
 func (a *Agent) PrintSessionSummary() {
 	mylogger.TokenSummary(a.tokens.Summary())
+}
+
+func optionOrEnv(option int, envName string, fallback int) int {
+	if option > 0 {
+		return option
+	}
+	raw := strings.TrimSpace(os.Getenv(envName))
+	if raw == "" {
+		return fallback
+	}
+	value, err := strconv.Atoi(raw)
+	if err != nil {
+		return fallback
+	}
+	return value
 }
